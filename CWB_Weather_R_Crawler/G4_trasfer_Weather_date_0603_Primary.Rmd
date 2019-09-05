@@ -1,0 +1,262 @@
+---
+title: "G4_Transfer_Weather_data_0531"
+output: 自動R爬取中央氣象局資料存成CSV檔上傳至
+        MySQL和MongoDB，且程式上傳至GCP自動執行
+---
+
+  #測站:467480_嘉義 C0F9L0_后里 C0K490_古坑 C0X060_下營
+  ###解碼%25E5%2598%2589%25E7%25BE%25A9###
+  #urlencoded <- c("%25E5%2598%2589%25E7%25BE%25A9")
+  #a <- sapply(urlencoded, URLdecode, USE.NAMES = FALSE)
+  #b <- URLdecode(a)
+  #Encoding(b) <- "UTF-8"
+  #b
+  
+#從 Selenium 官方網站下載最新版的 Selenium JAR 檔，然後在 Windows   #命令提示字元中，以 Java 執行此 JAR 檔，並且指定 chromedriver.exe   #與 geckodriver.exe 的放置路徑，假設這兩個 WebDriver 都放在 D:\r_work\     #底下，則執行：
+#java -Dwebdriver.chrome.driver=D:\chromedriver.exe        #-Dwebdriver.gecko.driver=D:\geckodriver.exe -jar    #selenium-server-standalone-3.141.59.jar
+#這裡我們同時指定 Google Chrome 與 Firefox 兩個瀏覽器的 WebDriver   #位置，這樣的話在程式中就可以使用兩種瀏覽器，如果只使用一種瀏覽器   #的話，可以將沒用到的 WebDriver 省略。
+
+
+```{R, message=FALSE, warning=FALSE,code = readLines("Auto_Run_Selenium.R")}
+
+##RStudio add-in to schedule R scripts##
+#install.packages('data.table')
+#install.packages('knitr')
+#install.packages('miniUI')
+#install.packages('shiny')
+#install.packages("taskscheduleR", repos = "http://www.datatailor.be/rcube", type = "source")
+
+#devtools::install_github("r-lib/rlang", build_vignettes = TRUE)
+#install.packages("RSelenium")
+#install.packages("purrr")
+#install.packages("rvest")
+#install.packages("RCurl")
+#install.packages("XML")
+#install.packages("mongolite")
+#install.packages("filesstrings")
+#install.packages("mongolite")
+#install.packages("Rcpp")
+#install.packages("dplyr",dependencies=TR)
+#install.packages('lubridate')
+#install.packages("httr")
+#install.packages('servr') 
+#install.packages("xml2")
+#install.packages("DMwR")#安裝KNN演算法
+#install.packages("lattice")
+#install.packages("grid")
+#install.packages("broom")
+#install.packages("mice") 
+#install.packages("tidyverse")
+#install.packages("cowplot")
+#install.packages("lsmeans")
+#install.packages("Amelia")
+#install.packages("Hmisc")
+#install.packages("mi")
+#install.packages("missForest")
+library(rvest)  # read_html函数
+library(XML)   #加入XML library
+library(RCurl)
+library(mongolite)
+library(Rcpp)
+library(lubridate)
+library(dplyr, warn.conflicts = FALSE)
+library(purrr)
+library(lubridate)
+library(RSelenium)
+library(wdman)
+library(httr)
+library(lattice)
+library(grid)
+library(broom)  
+library(mice)
+library(Amelia)
+library(Hmisc)
+library(mi)
+library(missForest)
+library(tidyverse)
+library(cowplot)
+library(lsmeans)
+
+library(data.table)
+library(knitr)
+library(miniUI)
+library(shiny)
+library(taskscheduleR)
+
+
+# 連接 Selenium 伺服器，選用 chrome 瀏覽器
+remDr <- remoteDriver(remoteServerAddr = "localhost",port = 4444,browserName = "chrome")
+
+# 開啟瀏覽器
+remDr$open()
+
+
+
+
+#測站名代號初值設定
+station_value <- c("467480","C0F9L0","C0K490","C0X060")
+#測站名初值設定
+station_name <- c("%25E5%2598%2589%25E7%25BE%25A9", "%25E5%2590%258E%25E9%2587%258C","%25E5%258F%25A4%25E5%259D%2591", "%25E4%25B8%258B%25E7%2587%259F")
+
+
+
+#每月當前觀測時間加上轉換時間
+today <- Sys.time()
+y <- as.Date(today)
+x <- y %m+% months(0:-1)
+currentdate <- format(as.Date(x),format="%Y-%m")
+
+
+#走過4個站名 
+for(i in 1:4){
+  for ( d in currentdate){
+    #結合測站名代號, 測站名, 每月當前觀測時間
+    query = paste0("&station=",station_value[i],"&stname=",station_name[i],"&datepicker=",d)
+    #將上述結合再次結合前半部url，還原為中央氣象局觀測資料查詢網站
+    httpurl <- paste0("https://e-service.cwb.gov.tw/HistoryDataQuery/MonthDataController.do?command=viewMain",query)
+    #網址列貼上httpurl
+    remDr$navigate(httpurl)
+    #對瀏覽器進行點及操作
+    webElem <- remDr$findElement(using = "xpath","//*[@id='downloadCSV']")
+    #點及下載CSV
+    webElem$clickElement()
+  }
+}
+
+
+
+# create list of all .csv files in folder 
+#製造想要讀的所有檔案的路徑文字串
+#folder <- "C:/r_work/Weather_Collection/"
+folder <- "C:/Users/Big data/Downloads/"
+file_list <- list.files(path = folder, pattern="*.csv") 
+
+
+# read in each .csv file in file_list and create a data frame with the same name as the .csv file
+i <- 1 
+while (i <= length(file_list)){
+    #讀取每個CSV黨
+    #assign a name 
+    #將CSV所有遺缺值設定為NA
+  wt <- read.csv(paste(folder, file_list[i], sep=''), header = TRUE, na.strings=c("/","X","T","...","NA","-"))
+  df = assign(file_list[i],wt)
+
+
+  #Cut_file_name
+  x <- c(file_list[i])
+  cfn <- substring(x, first=8, last=14)
+  df$ObsTime <- as.Date(paste(cfn , df[,"ObsTime"],sep = "-"), '%Y-%m-%d')
+  
+  # change cloumn name "ObsTime" to "Date"
+  names(df)[names(df)=="ObsTime"]="Date"
+  
+   
+  # choose column 
+  df = select(df[1:length(df$Date),],'Date', 'Temperature', 'T.Max','T.Min','Precp','RH','StnPres', 'WS', 'WSGust')
+  
+  #Cut_file_name
+  x <- c(file_list[1])
+  cfn <- substring(as.character(x) , first=1, last=6)
+  
+  #新增一行資料
+  Weather_County <- as.character(rep(cfn,nrow(df)))
+  #import three new cloumns
+  df <-cbind(df, Weather_County)
+  
+  
+
+  #以其欄位平均數填補其欄位
+  #以下用平均數，來填補某一欄位的遺漏值
+  df.data <- df
+  
+  #round(x, digits=n)，其中n為設定留下的位數
+  #第二欄位的平均數
+  mean.2 <- round(mean(df.data[, 2],trim = 0.1, na.rm = T), digits=1)
+  #第三欄位的平均數
+  mean.3 <- round(mean(df.data[, 3],trim = 0.1, na.rm = T), digits=1)
+  #第四欄位的平均數
+  mean.4 <- round(mean(df.data[, 4],trim = 0.1, na.rm = T), digits=1)
+  #第六欄位的平均數
+  mean.6 <- round(mean(df.data[, 6],trim = 0.1, na.rm = T), digits=0)
+  #第七欄位的平均數
+  mean.7 <- round(mean(df.data[, 7],trim = 0.1, na.rm = T), digits=1)
+  #第八欄位的平均數
+  mean.8 <- round(mean(df.data[, 8],trim = 0.1, na.rm = T), digits=1)
+  #第九欄位的中位數
+  median.9 <- round(median(df.data[, 9],trim = 0.1, na.rm = T), digits=1) 
+  
+  
+  #第二欄位中，有遺漏值存在的資料
+  na.rows2 <- is.na(df.data[, 2])
+  #第三欄位中，有遺漏值存在的資料
+  na.rows3 <- is.na(df.data[, 3])
+  #第四欄位中，有遺漏值存在的資料
+  na.rows4 <- is.na(df.data[, 4])
+  #第六欄位中，有遺漏值存在的資料
+  na.rows6 <- is.na(df.data[, 6])
+  #第七欄位中，有遺漏值存在的資料
+  na.rows7 <- is.na(df.data[, 7])
+  #第八欄位中，有遺漏值存在的資料
+  na.rows8 <- is.na(df.data[, 8])
+  #第九欄位中，有遺漏值存在的資料
+  na.rows9 <- is.na(df.data[, 9])
+  
+  
+  # 用第二欄位的平均數，填補第二欄位的遺漏值
+  df.data[na.rows2, 2] <- mean.2
+  # 用第三欄位的平均數，填補第三欄位的遺漏值
+  df.data[na.rows3, 3] <- mean.3
+  # 用第四欄位的平均數，填補第四欄位的遺漏值
+  df.data[na.rows4, 4] <- mean.4
+  # 用第六欄位的平均數，填補第六欄位的遺漏值
+  df.data[na.rows6, 6] <- mean.6
+  # 用第七欄位的平均數，填補第七欄位的遺漏值
+  df.data[na.rows7, 7] <- mean.7
+  # 用第八欄位的平均數，填補第八欄位的遺漏值
+  df.data[na.rows8, 8] <- mean.8
+  # 用第九欄位的中位數，填補第九欄位的遺漏值
+  df.data[na.rows9, 9] <- median.9
+  
+  
+  #df.data <- df  #測試用值
+  ### mice ==>建模訓練出來的值，填補NA遺漏值
+  df.mice5 <- mice(df.data, m = 3, method = "cart",seed = 1206, printFlag = F)
+  #第五欄位中，有遺漏值存在的資料
+  na.rows5 <- is.na(df.data[, 5])
+  mice::complete(df.mice5,1)[na.rows5, 5]
+  mice::complete(df.mice5,2)[na.rows5, 5]
+  mice::complete(df.mice5,3)[na.rows5, 5]
+  # 將訓練好的Model值放回其欄位
+  df.data[na.rows5, 5] <- mice::complete(df.mice5,3)[na.rows5, 5]
+  
+  # rewrite to df
+  df <- df.data
+  anyNA(df)
+  
+
+  # assign a name and  write .csv and storage local MySQL Folder
+  assign(file_list[i],df)
+  write.table(df, file = paste0("C:/r_work/Weather_Collection_MySQL/", file_list[i]),sep = ",", row.names = F,col.names = F)
+  
+  
+  
+  #choose column and storage local MongoDB Folder
+  assign(file_list[i],df)
+  df_mongo = select(df[1:length(df$Date),],'Date', 'Temperature','T.Max','T.Min','Precp','RH','StnPres', 'WS', 'WSGust')
+  write.table(df_mongo, file = paste0("C:/r_work/Weather_Collection_MongoDB/", file_list[i]),sep = ",", row.names = F,col.names = F)
+  
+  i = i + 1
+} 
+
+
+# stop the brower
+remDr$close()
+# stop the selenium server
+# if user forgets to stop server it will be garbage collected.
+remDr <- remoteDriver()
+rm(remDr)
+
+
+
+
+```
